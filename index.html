@@ -196,171 +196,168 @@
         }
 
         function processFrame() {
-            if (!cvReady || !videoReady || !streaming || processingFrame) {
-                if (streaming) {
-                    animationFrameId = requestAnimationFrame(processFrame);
-                }
-                return;
-            }
+    if (!cvReady || !videoReady || !streaming || processingFrame) {
+        if (streaming) {
+            animationFrameId = requestAnimationFrame(processFrame);
+        }
+        return;
+    }
 
-            processingFrame = true;
+    processingFrame = true;
 
-            // Declare all variables at the top for proper cleanup
-            let src = null;
-            let gray = null;
-            let blur = null;
-            let edges = null;
-            let contours = null;
-            let hierarchy = null;
-            let bestContour = null;
+    // Declare all variables at the top for proper cleanup
+    let src = null;
+    let gray = null;
+    let blur = null;
+    let edges = null;
+    let contours = null;
+    let hierarchy = null;
+    let bestContour = null;
 
-            try {
-                frameCount++;
-                if (frameCount % 30 === 0) {
-                    console.log("✓ Processing frame", frameCount);
-                }
-
-                const videoWidth = video.videoWidth;
-                const videoHeight = video.videoHeight;
-                
-                // Validate video dimensions
-                if (!videoWidth || !videoHeight || videoWidth < 100 || videoHeight < 100) {
-                    console.warn("Invalid video dimensions:", videoWidth, "x", videoHeight);
-                    processingFrame = false;
-                    animationFrameId = requestAnimationFrame(processFrame);
-                    return;
-                }
-
-                // Check if video is actually playing and has data
-                if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-                    console.warn("Video not ready, readyState:", video.readyState);
-                    processingFrame = false;
-                    animationFrameId = requestAnimationFrame(processFrame);
-                    return;
-                }
-
-                // Draw video frame to capture canvas
-                captureCanvas.width = videoWidth;
-                captureCanvas.height = videoHeight;
-                captureCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
-
-                // Create source mat from canvas ImageData
-                const imageData = captureCtx.getImageData(0, 0, videoWidth, videoHeight);
-                src = cv.matFromImageData(imageData);
-
-                if (frameCount === 1) {
-                    console.log("✓ First frame captured successfully! Size:", src.cols, "x", src.rows);
-                }
-
-                // Validate that we got a valid frame
-                if (src.empty() || src.rows === 0 || src.cols === 0) {
-                    throw new Error("Empty frame captured");
-                }
-
-                // Process the frame
-                gray = new cv.Mat();
-                blur = new cv.Mat();
-                edges = new cv.Mat();
-
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-                
-                // Validate gray conversion
-                if (gray.empty()) {
-                    throw new Error("Gray conversion failed");
-                }
-
-                cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-                
-                // More sensitive edge detection parameters
-                cv.Canny(blur, edges, 30, 100, 3, false);
-
-                contours = new cv.MatVector();
-                hierarchy = new cv.Mat();
-                cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-                if (frameCount % 30 === 0) {
-                    console.log("  Found", contours.size(), "contours");
-                }
-
-                g_detectedCorners = [];
-                let maxArea = 0;
-                let candidatesFound = 0;
-
-                for (let i = 0; i < contours.size(); ++i) {
-                    let contour = contours.get(i);
-                    let area = cv.contourArea(contour);
-
-                    // Lower minimum area threshold
-                    if (area < 2000) continue;
-
-                    let perimeter = cv.arcLength(contour, true);
-                    let approx = new cv.Mat();
-                    // More aggressive approximation
-                    cv.approxPolyDP(contour, approx, 0.03 * perimeter, true);
-
-                    if (frameCount % 30 === 0 && approx.rows === 4) {
-                        candidatesFound++;
-                        console.log("  Candidate quadrilateral #" + candidatesFound + " - area:", Math.round(area));
-                    }
-
-                    if (approx.rows === 4 && area > maxArea) {
-                        maxArea = area;
-                        if (bestContour) bestContour.delete();
-                        bestContour = approx.clone();
-                    }
-                    approx.delete();
-                }
-
-                if (frameCount % 30 === 0) {
-                    console.log("  Total quadrilateral candidates:", candidatesFound);
-                    if (maxArea > 0) {
-                        console.log("  Best candidate area:", Math.round(maxArea));
-                    }
-                }
-
-                if (bestContour && bestContour.rows === 4) {
-                    let cornerPts = [];
-                    for (let i = 0; i < 4; i++) {
-                        const data = bestContour.data32S;
-                        cornerPts.push({ x: data[i * 2], y: data[i * 2 + 1] });
-                    }
-                    g_detectedCorners = sortCorners(cornerPts);
-                    
-                    if (frameCount % 30 === 0) {
-                        console.log("  ✓ Document detected with 4 corners");
-                    }
-                }
-
-                checkAlignment();
-
-            } catch (error) {
-                console.error("❌ Frame processing error:", error);
-                // Log more details for debugging
-                if (error.message) {
-                    console.error("Error details:", error.message);
-                }
-                console.error("Video state - width:", video.videoWidth, "height:", video.videoHeight, "readyState:", video.readyState);
-            } finally {
-                // Clean up all resources
-                try {
-                    if (src) src.delete();
-                    if (gray) gray.delete();
-                    if (blur) blur.delete();
-                    if (edges) edges.delete();
-                    if (contours) contours.delete();
-                    if (hierarchy) hierarchy.delete();
-                    if (bestContour) bestContour.delete();
-                } catch (cleanupError) {
-                    console.error("Cleanup error:", cleanupError);
-                }
-
-                processingFrame = false;
-                if (streaming) {
-                    animationFrameId = requestAnimationFrame(processFrame);
-                }
-            }
+    try {
+        frameCount++;
+        if (frameCount % 30 === 0) {
+            console.log("✓ Processing frame", frameCount);
         }
 
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+        
+        // Validate video dimensions
+        if (!videoWidth || !videoHeight || videoWidth < 100 || videoHeight < 100) {
+            console.warn("Invalid video dimensions:", videoWidth, "x", videoHeight);
+            processingFrame = false;
+            animationFrameId = requestAnimationFrame(processFrame);
+            return;
+        }
+
+        // Check if video is actually playing and has data
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+            console.warn("Video not ready, readyState:", video.readyState);
+            processingFrame = false;
+            animationFrameId = requestAnimationFrame(processFrame);
+            return;
+        }
+
+        // Draw video frame to capture canvas
+        captureCanvas.width = videoWidth;
+        captureCanvas.height = videoHeight;
+        captureCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+        // Create source mat from canvas ImageData
+        const imageData = captureCtx.getImageData(0, 0, videoWidth, videoHeight);
+        src = cv.matFromImageData(imageData);
+
+        if (frameCount === 1) {
+            console.log("✓ First frame captured successfully! Size:", src.cols, "x", src.rows);
+        }
+
+        // Validate that we got a valid frame
+        if (src.empty() || src.rows === 0 || src.cols === 0) {
+            throw new Error("Empty frame captured");
+        }
+
+        // Process the frame
+        gray = new cv.Mat();
+        blur = new cv.Mat();
+        edges = new cv.Mat();
+
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+        
+        // Validate gray conversion
+        if (gray.empty()) {
+            throw new Error("Gray conversion failed");
+        }
+
+        cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+        
+        // More sensitive edge detection parameters
+        cv.Canny(blur, edges, 30, 100, 3, false);
+
+        contours = new cv.MatVector();
+        hierarchy = new cv.Mat();
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        if (frameCount % 30 === 0) {
+            console.log("  Found", contours.size(), "contours");
+        }
+
+        g_detectedCorners = [];
+        let bestScore = 0;
+        const expectedAspectRatio = 1.414; // A4, adjust if needed
+        const aspectTolerance = 0.25;      // Acceptable deviation
+
+        for (let i = 0; i < contours.size(); ++i) {
+            let contour = contours.get(i);
+            let area = cv.contourArea(contour);
+
+            // Only consider contours covering at least 25% of the frame
+            if (area < 0.25 * videoWidth * videoHeight) continue;
+
+            let perimeter = cv.arcLength(contour, true);
+            let approx = new cv.Mat();
+            cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
+
+            if (approx.rows === 4) {
+                // Calculate aspect ratio
+                let pts = [];
+                for (let j = 0; j < 4; j++) {
+                    const data = approx.data32S;
+                    pts.push({ x: data[j * 2], y: data[j * 2 + 1] });
+                }
+                let width = dist(pts[0], pts[1]);
+                let height = dist(pts[1], pts[2]);
+                let aspect = width > height ? width / height : height / width;
+
+                // Score based on area and aspect ratio closeness
+                let aspectScore = 1 - Math.abs(aspect - expectedAspectRatio) / expectedAspectRatio;
+                let score = area * aspectScore;
+
+                if (aspectScore > (1 - aspectTolerance) && score > bestScore) {
+                    bestScore = score;
+                    if (bestContour) bestContour.delete();
+                    bestContour = approx.clone();
+                }
+            }
+            approx.delete();
+        }
+
+        if (bestContour && bestContour.rows === 4) {
+            let cornerPts = [];
+            for (let i = 0; i < 4; i++) {
+                const data = bestContour.data32S;
+                cornerPts.push({ x: data[i * 2], y: data[i * 2 + 1] });
+            }
+            g_detectedCorners = sortCorners(cornerPts);
+        }
+
+        checkAlignment();
+
+    } catch (error) {
+        console.error("❌ Frame processing error:", error);
+        if (error.message) {
+            console.error("Error details:", error.message);
+        }
+        console.error("Video state - width:", video.videoWidth, "height:", video.videoHeight, "readyState:", video.readyState);
+    } finally {
+        try {
+            if (src) src.delete();
+            if (gray) gray.delete();
+            if (blur) blur.delete();
+            if (edges) edges.delete();
+            if (contours) contours.delete();
+            if (hierarchy) hierarchy.delete();
+            if (bestContour) bestContour.delete();
+        } catch (cleanupError) {
+            console.error("Cleanup error:", cleanupError);
+        }
+
+        processingFrame = false;
+        if (streaming) {
+            animationFrameId = requestAnimationFrame(processFrame);
+        }
+    }
+}
         function checkAlignment() {
             const videoWidth = video.videoWidth;
             const videoHeight = video.videoHeight;
