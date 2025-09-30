@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Document Alignment Guide v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the visual guidance area */
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            background-color: #000;
+        }
+        #webcam-video {
+            display: block;
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1); /* Mirror the video for natural user experience */
+            opacity: 0; /* Hide video feed once canvas is ready */
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #overlay-canvas {
+            position: relative;
+            display: block;
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1); /* Mirror the canvas output to match video */
+        }
+        .guide-box {
+            position: absolute;
+            border: 3px dashed rgba(0, 255, 0, 0.7); /* Green guide box */
+            border-radius: 0.5rem;
+            pointer-events: none;
+            transition: border-color 0.3s ease;
+        }
+        .score-indicator {
+            transition: background-color 0.3s ease;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+        }
+        .loading-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 font-sans antialiased flex flex-col items-center">
+
+    <div class="max-w-xl w-full bg-white p-6 rounded-xl shadow-lg">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Real-Time Document Alignment Checker</h1>
+        <p class="text-gray-600 mb-4">Point your camera at a document. The system detects the corners and checks for alignment (Skew, Center, Fill).</p>
+
+        <!-- Video and Overlay Container -->
+        <div id="video-container">
+            <video id="webcam-video" autoplay playsinline></video>
+            <canvas id="overlay-canvas"></canvas>
+            <div id="guide-target" class="guide-box"></div>
+            <div id="loading-opencv" class="loading-message text-center text-sm">
+                Loading Computer Vision Engine...
+                <div class="mt-2 text-xs">If this takes long, ensure stable internet.</div>
+            </div>
+            <!-- Draggable points removed - now using live detection -->
+        </div>
+
+        <!-- Feedback Section -->
+        <div class="mt-6 space-y-3">
+            <div id="overall-status" class="text-center py-3 text-lg font-semibold bg-gray-200 rounded-lg">
+                Waiting for Camera & Engine...
+            </div>
+            
+            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                <span>Centering Score:</span>
+                <span id="center-score" class="score-indicator bg-red-100 text-red-700">Waiting</span>
+            </div>
+            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                <span>Fill Factor Score:</span>
+                <span id="fill-score" class="score-indicator bg-red-100 text-red-700">Waiting</span>
+            </div>
+            <div class="flex justify-between items-center text-sm font-medium text-gray-700">
+                <span>Skew / Perspective:</span>
+                <span id="skew-score" class="score-indicator bg-red-100 text-red-700">Waiting</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script> 
+        const video = document.getElementById('webcam-video');
+        const canvas = document.getElementById('overlay-canvas');
+        const container = document.getElementById('video-container');
+        const ctx = canvas.getContext('2d');
+        const guideTarget = document.getElementById('guide-target');
+        const statusEl = document.getElementById('overall-status');
+        const centerScoreEl = document.getElementById('center-score');
+        const fillScoreEl = document.getElementById('fill-score');
+        const skewScoreEl = document.getElementById('skew-score');
+        const loadingEl = document.getElementById('loading-opencv');
+
+        let videoReady = false;
+        let cvReady = false;
+        let streaming = false;
+        
+        // Stores the corners detected by OpenCV (normalized to video resolution)
+        let g_detectedCorners = [];
+
+        // --- Configuration Parameters ---
+        const TARGET_FILL_PERCENT = 0.4;    // Document must fill 40% of the target area
+        const MAX_SKEW_RATIO = 1.10;        // Max ratio difference between opposite sides (e.g., 1.10 = 10% difference)
+        const MAX_CENTER_DEVIATION = 0.08;  // Max deviation of document center from frame center (8% of frame width/height)
+        const GUIDE_MARGIN = 0.15;          // 15% margin for the guide box
+
+        // --- OpenCV Initialization ---
+        // cv is a global object provided by opencv.js
+        const onOpenCvReady = () => {
+            cvReady = true;
+            console.log("OpenCV.js is ready.");
+            loadingEl.style.display = 'none';
+            if (videoReady) {
+                startProcessing();
+            }
+        };
+
+        // --- Geometric Utility Functions ---
+
+        // Calculates the distance between two points (a, b)
+        function dist(p1, p2) {
+            return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        }
+
+        // Calculates the area of a quadrilateral (using Shoelace formula)
+        function calculateArea(points) {
+            // Points must be sorted in order (e.g., TL, TR, BR, BL) for this to work
+            const [p1, p2, p3, p4] = points;
+            return 0.5 * Math.abs(
+                (p1.x * p2.y + p2.x * p3.y + p3.x * p4.y + p4.x * p1.x) -
+                (p1.y * p2.x + p2.y * p3.x + p3.y * p4.x + p4.y * p1.x)
+            );
+        }
+
+        // --- OpenCV Vision Processing ---
+
+        // Helper to sort the detected 4 corners: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+        function sortCorners(pts) {
+            const rect = [];
+            // Calculate the sum and difference of coordinates
+            const sums = [];
+            const diffs = [];
+
+            for (const p of pts) {
+                sums.push(p.x + p.y);
+                diffs.push(p.x - p.y);
+            }
+
+            // Top-Left has the smallest sum (x + y)
+            rect[0] = pts[sums.indexOf(Math.min(...sums))];
+            
+            // Bottom-Right has the largest sum (x + y)
+            rect[2] = pts[sums.indexOf(Math.max(...sums))];
+            
+            // Top-Right has the largest difference (x - y)
+            rect[1] = pts[diffs.indexOf(Math.max(...diffs))];
+            
+            // Bottom-Left has the smallest difference (x - y)
+            rect[3] = pts[diffs.indexOf(Math.min(...diffs))];
+
+            return rect;
+        }
+
+        function processFrame() {
+            if (!cvReady || !videoReady) return;
+
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            
+            // Define source and destination mats
+            let src = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
+            let dst = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);
+            let gray = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);
+            let blur = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);
+            let edges = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC1);
+
+            let cap = new cv.VideoCapture(video);
+            cap.read(src); // Capture frame from video
+
+            // --- Preprocessing ---
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+            cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+            
+            // --- Edge Detection ---
+            // Canny parameters typically need tuning based on lighting
+            cv.Canny(blur, edges, 75, 200, 3, false); 
+
+            // --- Contour Finding ---
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            g_detectedCorners = [];
+            let maxArea = 0;
+            let bestContour = null;
+
+            // Find the contour that is likely the document (largest quadrilateral)
+            for (let i = 0; i < contours.size(); ++i) {
+                let contour = contours.get(i);
+                let area = cv.contourArea(contour);
+
+                if (area < 1000) continue; // Ignore very small contours
+
+                let perimeter = cv.arcLength(contour, true);
+                let approx = new cv.Mat();
+                cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
+
+                // Check if the contour is a quadrilateral and has the largest area so far
+                if (approx.rows === 4 && area > maxArea) {
+                    maxArea = area;
+                    bestContour = approx;
+                }
+                approx.delete();
+            }
+
+            if (bestContour) {
+                let cornerPts = [];
+                for (let i = 0; i < 4; i++) {
+                    const data = bestContour.data32S;
+                    // data32S stores x, y pairs sequentially (x0, y0, x1, y1, ...)
+                    cornerPts.push({ x: data[i * 2], y: data[i * 2 + 1] });
+                }
+                g_detectedCorners = sortCorners(cornerPts);
+            }
+            
+            // Clean up Mats and MatVectors
+            src.delete();
+            dst.delete();
+            gray.delete();
+            blur.delete();
+            edges.delete();
+            contours.delete();
+            hierarchy.delete();
+            if (bestContour) bestContour.delete();
+
+            // Run alignment checks with the newly found corners
+            checkAlignment();
+
+            // Request next frame process
+            if (streaming) {
+                requestAnimationFrame(processFrame);
+            }
+        }
+
+        // --- Alignment Check Logic (Uses actual detected corners) ---
+
+        function checkAlignment() {
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            const frameArea = videoWidth * videoHeight;
+            
+            // Default to 'Waiting' state if no 4-corner document is found
+            if (g_detectedCorners.length !== 4) {
+                statusEl.textContent = "🔍 Finding Document Edges...";
+                statusEl.className = "text-center py-3 text-lg font-semibold bg-gray-200 text-gray-700 rounded-lg";
+                guideTarget.style.borderColor = 'rgba(255, 255, 0, 0.7)'; // Yellow border
+                centerScoreEl.textContent = 'N/A';
+                fillScoreEl.textContent = 'N/A';
+                skewScoreEl.textContent = 'N/A';
+                drawDocumentOutline([]); // Clear outline
+                return;
+            }
+
+            const corners = g_detectedCorners;
+
+            // Calculate sides: Top (p1-p2), Right (p2-p3), Bottom (p3-p4), Left (p4-p1)
+            const topSide = dist(corners[0], corners[1]);
+            const rightSide = dist(corners[1], corners[2]);
+            const bottomSide = dist(corners[2], corners[3]);
+            const leftSide = dist(corners[3], corners[0]);
+
+            // --- 1. SKEW / PERSPECTIVE CHECK ---
+            // Check if opposite sides are roughly parallel (ratio close to 1)
+            const horizontalSkewRatio = Math.max(topSide, bottomSide) / Math.min(topSide, bottomSide);
+            const verticalSkewRatio = Math.max(leftSide, rightSide) / Math.min(leftSide, rightSide);
+
+            let skewOK = horizontalSkewRatio < MAX_SKEW_RATIO && verticalSkewRatio < MAX_SKEW_RATIO;
+            
+            skewScoreEl.textContent = skewOK ? 'Low Skew' : 'High Distortion';
+            skewScoreEl.className = `score-indicator ${skewOK ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+
+            // --- 2. FILL FACTOR CHECK (Area) ---
+            const documentArea = calculateArea(corners);
+            const fillFactor = documentArea / frameArea;
+            const fillOK = fillFactor >= TARGET_FILL_PERCENT;
+
+            fillScoreEl.textContent = `${(fillFactor * 100).toFixed(1)}% / ${(TARGET_FILL_PERCENT * 100)}%`;
+            fillScoreEl.className = `score-indicator ${fillFactor >= TARGET_FILL_PERCENT * 0.8 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'} ${fillOK ? 'bg-green-100 text-green-700' : ''}`;
+
+            // --- 3. CENTERING CHECK ---
+            const docCenterX = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4;
+            const docCenterY = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4;
+
+            const frameCenterX = videoWidth / 2;
+            const frameCenterY = videoHeight / 2;
+
+            const deviationX = Math.abs(docCenterX - frameCenterX) / videoWidth;
+            const deviationY = Math.abs(docCenterY - frameCenterY) / videoHeight;
+            
+            const centerOK = deviationX < MAX_CENTER_DEVIATION && deviationY < MAX_CENTER_DEVIATION;
+
+            centerScoreEl.textContent = centerOK ? 'Centered' : 'Off Center';
+            centerScoreEl.className = `score-indicator ${centerOK ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`;
+
+
+            // --- OVERALL STATUS ---
+            if (skewOK && fillOK && centerOK) {
+                statusEl.textContent = "✅ PERFECT ALIGNMENT: CAPTURE READY!";
+                statusEl.className = "text-center py-3 text-lg font-semibold bg-green-500 text-white rounded-lg";
+                guideTarget.style.borderColor = 'rgba(0, 255, 0, 1)';
+            } else {
+                statusEl.textContent = "Adjust Document Position";
+                statusEl.className = "text-center py-3 text-lg font-semibold bg-red-500 text-white rounded-lg";
+                guideTarget.style.borderColor = 'rgba(255, 0, 0, 1)';
+            }
+
+            drawDocumentOutline(corners);
+        }
+
+        function drawDocumentOutline(corners) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (corners.length === 0) return;
+
+            // Scale points to canvas resolution
+            const scaleX = canvas.width / video.videoWidth;
+            const scaleY = canvas.height / video.videoHeight;
+            
+            ctx.beginPath();
+            
+            // Move to first corner (p1)
+            ctx.moveTo(corners[0].x * scaleX, corners[0].y * scaleY);
+            
+            // Draw lines to the remaining corners
+            for (let i = 1; i < corners.length; i++) {
+                ctx.lineTo(corners[i].x * scaleX, corners[i].y * scaleY);
+            }
+            
+            // Close the path to the first corner
+            ctx.closePath();
+            
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#F59E0B'; // Amber 500
+            ctx.stroke();
+
+            // Draw the center point
+            const docCenter = {
+                x: (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4 * scaleX,
+                y: (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4 * scaleY
+            };
+            ctx.fillStyle = '#059669'; // Emerald 600
+            ctx.beginPath();
+            ctx.arc(docCenter.x, docCenter.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- Camera Setup ---
+
+        function setupCamera() {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        // Set canvas and container dimensions based on video aspect ratio
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        container.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+
+                        videoReady = true;
+                        initializeGuide();
+                        if (cvReady) {
+                            startProcessing();
+                        } else {
+                            statusEl.textContent = "Camera Ready. Waiting for CV Engine...";
+                        }
+                    };
+                })
+                .catch(err => {
+                    statusEl.textContent = `Error: Cannot access camera. (${err.name}). Check permissions.`;
+                    statusEl.className = "text-center py-3 text-lg font-semibold bg-red-200 text-red-800 rounded-lg";
+                    console.error("Camera access error: ", err);
+                });
+        }
+
+        function initializeGuide() {
+            const containerWidth = container.offsetWidth;
+            const containerHeight = container.offsetHeight;
+            const marginX = containerWidth * GUIDE_MARGIN;
+            const marginY = containerHeight * GUIDE_MARGIN;
+
+            // Set guide target position
+            guideTarget.style.left = `${marginX}px`;
+            guideTarget.style.top = `${marginY}px`;
+            guideTarget.style.width = `${containerWidth - 2 * marginX}px`;
+            guideTarget.style.height = `${containerHeight - 2 * marginY}px`;
+        }
+
+        function startProcessing() {
+            if (streaming) return;
+            streaming = true;
+            video.style.opacity = 0.01; // Keep video visible but mostly transparent for background capture
+            loadingEl.style.display = 'none';
+            // Start the OpenCV processing loop
+            requestAnimationFrame(processFrame);
+        }
+        
+        // Start the application after the document has fully loaded
+        window.onload = setupCamera;
+    </script>
+    <!-- OpenCV.js Library - The CV engine needed for real-time detection -->
+    <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();"></script>
+</body>
+</html>
