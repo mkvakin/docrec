@@ -23,7 +23,7 @@
             display: block;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
             position: relative;
             z-index: 1;
         }
@@ -77,6 +77,7 @@
         <div id="video-container">
             <video id="webcam-video" autoplay playsinline muted></video>
             <canvas id="overlay-canvas"></canvas>
+            <canvas id="capture-canvas" style="display: none;"></canvas>
             <div id="guide-target" class="guide-box"></div>
             <div id="loading-opencv" class="loading-message">
                 <div class="text-lg font-semibold mb-2">Initializing Scanner...</div>
@@ -111,6 +112,8 @@
     <script>
         const video = document.getElementById('webcam-video');
         const canvas = document.getElementById('overlay-canvas');
+        const captureCanvas = document.getElementById('capture-canvas');
+        const captureCtx = captureCanvas.getContext('2d');
         const container = document.getElementById('video-container');
         const ctx = canvas.getContext('2d');
         const guideTarget = document.getElementById('guide-target');
@@ -214,7 +217,7 @@
             try {
                 frameCount++;
                 if (frameCount % 30 === 0) {
-                    console.log("Processing frame", frameCount);
+                    console.log("✓ Processing frame", frameCount);
                 }
 
                 const videoWidth = video.videoWidth;
@@ -222,6 +225,7 @@
                 
                 // Validate video dimensions
                 if (!videoWidth || !videoHeight || videoWidth < 100 || videoHeight < 100) {
+                    console.warn("Invalid video dimensions:", videoWidth, "x", videoHeight);
                     processingFrame = false;
                     animationFrameId = requestAnimationFrame(processFrame);
                     return;
@@ -229,15 +233,24 @@
 
                 // Check if video is actually playing and has data
                 if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+                    console.warn("Video not ready, readyState:", video.readyState);
                     processingFrame = false;
                     animationFrameId = requestAnimationFrame(processFrame);
                     return;
                 }
 
-                // Create source mat and capture frame
-                src = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
-                let cap = new cv.VideoCapture(video);
-                cap.read(src);
+                // Draw video frame to capture canvas
+                captureCanvas.width = videoWidth;
+                captureCanvas.height = videoHeight;
+                captureCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+                // Create source mat from canvas ImageData
+                const imageData = captureCtx.getImageData(0, 0, videoWidth, videoHeight);
+                src = cv.matFromImageData(imageData);
+
+                if (frameCount === 1) {
+                    console.log("✓ First frame captured successfully! Size:", src.cols, "x", src.rows);
+                }
 
                 // Validate that we got a valid frame
                 if (src.empty() || src.rows === 0 || src.cols === 0) {
@@ -263,6 +276,10 @@
                 hierarchy = new cv.Mat();
                 cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
+                if (frameCount % 30 === 0) {
+                    console.log("  Found", contours.size(), "contours");
+                }
+
                 g_detectedCorners = [];
                 let maxArea = 0;
 
@@ -280,6 +297,10 @@
                         maxArea = area;
                         if (bestContour) bestContour.delete();
                         bestContour = approx.clone();
+                        
+                        if (frameCount % 30 === 0) {
+                            console.log("  Found quadrilateral with area:", Math.round(area));
+                        }
                     }
                     approx.delete();
                 }
@@ -291,16 +312,21 @@
                         cornerPts.push({ x: data[i * 2], y: data[i * 2 + 1] });
                     }
                     g_detectedCorners = sortCorners(cornerPts);
+                    
+                    if (frameCount % 30 === 0) {
+                        console.log("  ✓ Document detected with 4 corners");
+                    }
                 }
 
                 checkAlignment();
 
             } catch (error) {
-                console.error("Frame processing error:", error);
+                console.error("❌ Frame processing error:", error);
                 // Log more details for debugging
                 if (error.message) {
                     console.error("Error details:", error.message);
                 }
+                console.error("Video state - width:", video.videoWidth, "height:", video.videoHeight, "readyState:", video.readyState);
             } finally {
                 // Clean up all resources
                 try {
@@ -461,7 +487,9 @@
         }
 
         function waitForDimensions() {
-            if (video.videoWidth && video.videoHeight && video.readyState >= video.HAVE_ENOUGH_DATA) {
+            if (video.videoWidth && video.videoHeight && 
+                video.readyState >= video.HAVE_ENOUGH_DATA) {
+                
                 const aspectRatio = video.videoWidth / video.videoHeight;
                 
                 // Set container height based on video aspect ratio
@@ -505,7 +533,12 @@
             
             // Final validation before starting
             if (!video.videoWidth || !video.videoHeight || video.readyState < video.HAVE_ENOUGH_DATA) {
-                console.warn("Video not fully ready, retrying...");
+                console.warn("⏳ Video not fully ready, retrying...", {
+                    width: video.videoWidth,
+                    height: video.videoHeight,
+                    readyState: video.readyState,
+                    expectedReadyState: video.HAVE_ENOUGH_DATA
+                });
                 setTimeout(startProcessing, 200);
                 return;
             }
@@ -514,7 +547,13 @@
             loadingEl.style.display = 'none';
             statusEl.textContent = "🔍 Scanning for document...";
             statusEl.className = "text-center py-3 text-lg font-semibold bg-blue-100 text-blue-800 rounded-lg";
-            console.log("Starting processing loop with video dimensions:", video.videoWidth, "x", video.videoHeight);
+            
+            console.log("🚀 STARTING PROCESSING LOOP");
+            console.log("  Video dimensions:", video.videoWidth, "x", video.videoHeight);
+            console.log("  Video readyState:", video.readyState, "(HAVE_ENOUGH_DATA =", video.HAVE_ENOUGH_DATA + ")");
+            console.log("  OpenCV ready:", cvReady);
+            console.log("  Video ready:", videoReady);
+            
             animationFrameId = requestAnimationFrame(processFrame);
         }
 
