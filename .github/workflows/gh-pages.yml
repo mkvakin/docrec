@@ -8,6 +8,10 @@ on:
       - main
   workflow_dispatch: # Allows manual triggering from the Actions tab
 
+permissions:
+  contents: write    # Allows pushing to branches
+  pages: write       # Allows managing GitHub Pages
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
