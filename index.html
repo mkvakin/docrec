@@ -15,7 +15,6 @@
             overflow: hidden;
             box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
             background-color: #1a1a1a;
-            min-height: 400px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -23,8 +22,8 @@
         #webcam-video {
             display: block;
             width: 100%;
-            height: auto;
-            transform: scaleX(-1);
+            height: 100%;
+            object-fit: cover;
             position: absolute;
             top: 0;
             left: 0;
@@ -36,7 +35,6 @@
             left: 0;
             width: 100%;
             height: 100%;
-            transform: scaleX(-1);
             z-index: 2;
             pointer-events: none;
         }
@@ -131,6 +129,7 @@
         let processingFrame = false;
         let g_detectedCorners = [];
         let animationFrameId = null;
+        let isFrontCamera = false;
 
         const TARGET_FILL_PERCENT = 0.4;
         const MAX_SKEW_RATIO = 1.10;
@@ -204,35 +203,64 @@
 
             processingFrame = true;
 
+            // Declare all variables at the top for proper cleanup
+            let src = null;
+            let gray = null;
+            let blur = null;
+            let edges = null;
+            let contours = null;
+            let hierarchy = null;
+            let bestContour = null;
+
             try {
                 const videoWidth = video.videoWidth;
                 const videoHeight = video.videoHeight;
                 
-                if (!videoWidth || !videoHeight) {
+                // Validate video dimensions
+                if (!videoWidth || !videoHeight || videoWidth < 100 || videoHeight < 100) {
                     processingFrame = false;
                     animationFrameId = requestAnimationFrame(processFrame);
                     return;
                 }
 
-                let src = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
-                let gray = new cv.Mat();
-                let blur = new cv.Mat();
-                let edges = new cv.Mat();
+                // Check if video is actually playing and has data
+                if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+                    processingFrame = false;
+                    animationFrameId = requestAnimationFrame(processFrame);
+                    return;
+                }
 
+                // Create source mat and capture frame
+                src = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
                 let cap = new cv.VideoCapture(video);
                 cap.read(src);
 
+                // Validate that we got a valid frame
+                if (src.empty() || src.rows === 0 || src.cols === 0) {
+                    throw new Error("Empty frame captured");
+                }
+
+                // Process the frame
+                gray = new cv.Mat();
+                blur = new cv.Mat();
+                edges = new cv.Mat();
+
                 cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+                
+                // Validate gray conversion
+                if (gray.empty()) {
+                    throw new Error("Gray conversion failed");
+                }
+
                 cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
                 cv.Canny(blur, edges, 50, 150, 3, false);
 
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
+                contours = new cv.MatVector();
+                hierarchy = new cv.Mat();
                 cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
                 g_detectedCorners = [];
                 let maxArea = 0;
-                let bestContour = null;
 
                 for (let i = 0; i < contours.size(); ++i) {
                     let contour = contours.get(i);
@@ -252,32 +280,38 @@
                     approx.delete();
                 }
 
-                if (bestContour) {
+                if (bestContour && bestContour.rows === 4) {
                     let cornerPts = [];
                     for (let i = 0; i < 4; i++) {
                         const data = bestContour.data32S;
                         cornerPts.push({ x: data[i * 2], y: data[i * 2 + 1] });
                     }
                     g_detectedCorners = sortCorners(cornerPts);
-                    bestContour.delete();
                 }
-
-                src.delete();
-                gray.delete();
-                blur.delete();
-                edges.delete();
-                contours.delete();
-                hierarchy.delete();
 
                 checkAlignment();
 
             } catch (error) {
                 console.error("Frame processing error:", error);
-            }
+                // Continue processing despite errors
+            } finally {
+                // Clean up all resources
+                try {
+                    if (src) src.delete();
+                    if (gray) gray.delete();
+                    if (blur) blur.delete();
+                    if (edges) edges.delete();
+                    if (contours) contours.delete();
+                    if (hierarchy) hierarchy.delete();
+                    if (bestContour) bestContour.delete();
+                } catch (cleanupError) {
+                    console.error("Cleanup error:", cleanupError);
+                }
 
-            processingFrame = false;
-            if (streaming) {
-                animationFrameId = requestAnimationFrame(processFrame);
+                processingFrame = false;
+                if (streaming) {
+                    animationFrameId = requestAnimationFrame(processFrame);
+                }
             }
         }
 
@@ -386,6 +420,22 @@
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(stream => {
                     video.srcObject = stream;
+                    
+                    // Detect if using front or rear camera
+                    const videoTrack = stream.getVideoTracks()[0];
+                    const settings = videoTrack.getSettings();
+                    isFrontCamera = settings.facingMode === 'user';
+                    
+                    // Only mirror if using front camera
+                    if (isFrontCamera) {
+                        video.style.transform = 'scaleX(-1)';
+                        canvas.style.transform = 'scaleX(-1)';
+                    } else {
+                        video.style.transform = 'scaleX(1)';
+                        canvas.style.transform = 'scaleX(1)';
+                    }
+                    
+                    console.log("Camera facing mode:", settings.facingMode, "- Mirror:", isFrontCamera);
                     updateLoadingMessage("Camera connected, waiting for video...");
                     
                     video.onloadedmetadata = () => {
@@ -404,16 +454,25 @@
         }
 
         function waitForDimensions() {
-            if (video.videoWidth && video.videoHeight) {
+            if (video.videoWidth && video.videoHeight && video.readyState >= video.HAVE_ENOUGH_DATA) {
+                const aspectRatio = video.videoWidth / video.videoHeight;
+                
+                // Set container height based on video aspect ratio
+                container.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+                
+                // Set canvas to match video dimensions
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                container.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+                
                 videoReady = true;
                 initializeGuide();
                 updateLoadingMessage("Camera ready!");
                 
+                console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight, "Aspect:", aspectRatio.toFixed(2));
+                
                 if (cvReady) {
-                    startProcessing();
+                    // Add a small delay to ensure video is fully streaming
+                    setTimeout(startProcessing, 500);
                 } else {
                     updateLoadingMessage("Camera ready. Waiting for CV engine...");
                 }
@@ -436,9 +495,18 @@
 
         function startProcessing() {
             if (streaming) return;
+            
+            // Final validation before starting
+            if (!video.videoWidth || !video.videoHeight || video.readyState < video.HAVE_ENOUGH_DATA) {
+                console.warn("Video not fully ready, retrying...");
+                setTimeout(startProcessing, 200);
+                return;
+            }
+            
             streaming = true;
             loadingEl.style.display = 'none';
             statusEl.textContent = "Scanning for document...";
+            console.log("Starting processing loop with video dimensions:", video.videoWidth, "x", video.videoHeight);
             animationFrameId = requestAnimationFrame(processFrame);
         }
 
