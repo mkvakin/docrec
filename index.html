@@ -270,7 +270,9 @@
                 }
 
                 cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-                cv.Canny(blur, edges, 50, 150, 3, false);
+                
+                // More sensitive edge detection parameters
+                cv.Canny(blur, edges, 30, 100, 3, false);
 
                 contours = new cv.MatVector();
                 hierarchy = new cv.Mat();
@@ -282,27 +284,38 @@
 
                 g_detectedCorners = [];
                 let maxArea = 0;
+                let candidatesFound = 0;
 
                 for (let i = 0; i < contours.size(); ++i) {
                     let contour = contours.get(i);
                     let area = cv.contourArea(contour);
 
-                    if (area < 5000) continue;
+                    // Lower minimum area threshold
+                    if (area < 2000) continue;
 
                     let perimeter = cv.arcLength(contour, true);
                     let approx = new cv.Mat();
-                    cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
+                    // More aggressive approximation
+                    cv.approxPolyDP(contour, approx, 0.03 * perimeter, true);
+
+                    if (frameCount % 30 === 0 && approx.rows === 4) {
+                        candidatesFound++;
+                        console.log("  Candidate quadrilateral #" + candidatesFound + " - area:", Math.round(area));
+                    }
 
                     if (approx.rows === 4 && area > maxArea) {
                         maxArea = area;
                         if (bestContour) bestContour.delete();
                         bestContour = approx.clone();
-                        
-                        if (frameCount % 30 === 0) {
-                            console.log("  Found quadrilateral with area:", Math.round(area));
-                        }
                     }
                     approx.delete();
+                }
+
+                if (frameCount % 30 === 0) {
+                    console.log("  Total quadrilateral candidates:", candidatesFound);
+                    if (maxArea > 0) {
+                        console.log("  Best candidate area:", Math.round(maxArea));
+                    }
                 }
 
                 if (bestContour && bestContour.rows === 4) {
