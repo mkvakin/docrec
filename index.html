@@ -24,9 +24,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            position: absolute;
-            top: 0;
-            left: 0;
+            position: relative;
             z-index: 1;
         }
         #overlay-canvas {
@@ -130,6 +128,7 @@
         let g_detectedCorners = [];
         let animationFrameId = null;
         let isFrontCamera = false;
+        let frameCount = 0;
 
         const TARGET_FILL_PERCENT = 0.4;
         const MAX_SKEW_RATIO = 1.10;
@@ -213,6 +212,11 @@
             let bestContour = null;
 
             try {
+                frameCount++;
+                if (frameCount % 30 === 0) {
+                    console.log("Processing frame", frameCount);
+                }
+
                 const videoWidth = video.videoWidth;
                 const videoHeight = video.videoHeight;
                 
@@ -293,7 +297,10 @@
 
             } catch (error) {
                 console.error("Frame processing error:", error);
-                // Continue processing despite errors
+                // Log more details for debugging
+                if (error.message) {
+                    console.error("Error details:", error.message);
+                }
             } finally {
                 // Clean up all resources
                 try {
@@ -505,7 +512,8 @@
             
             streaming = true;
             loadingEl.style.display = 'none';
-            statusEl.textContent = "Scanning for document...";
+            statusEl.textContent = "🔍 Scanning for document...";
+            statusEl.className = "text-center py-3 text-lg font-semibold bg-blue-100 text-blue-800 rounded-lg";
             console.log("Starting processing loop with video dimensions:", video.videoWidth, "x", video.videoHeight);
             animationFrameId = requestAnimationFrame(processFrame);
         }
