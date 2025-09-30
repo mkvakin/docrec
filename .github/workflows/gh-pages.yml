@@ -1,0 +1,32 @@
+# Simple GitHub Actions workflow for publishing to GitHub Pages
+# This workflow will build and deploy the site whenever changes are pushed to main
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build static site (if needed)
+        run: |
+          # If you have a build step, add it here. For pure HTML, this can be skipped.
+          echo "No build step needed for static HTML."
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          # If your site is built to a subfolder, change publish_dir accordingly
