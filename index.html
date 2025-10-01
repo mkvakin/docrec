@@ -356,6 +356,7 @@ for (let i = 0; i < contours.size(); ++i) {
         }
     }
 }
+        
         function checkAlignment() {
             const videoWidth = video.videoWidth;
             const videoHeight = video.videoHeight;
@@ -446,7 +447,7 @@ for (let i = 0; i < contours.size(); ++i) {
             ctx.arc(docCenter.x, docCenter.y, 8, 0, 2 * Math.PI);
             ctx.fill();
         }
-
+        
         function setupCamera() {
             updateLoadingMessage("Requesting camera access...");
             
@@ -525,6 +526,66 @@ for (let i = 0; i < contours.size(); ++i) {
         }
 
         function initializeGuide() {
+            let minSide = Math.min(container.offsetWidth, container.offsetHeight);
+            let MARGIN = 0.05;
+            let marginPx = minSide * MARGIN;
+
+            const containerWidth = container.offsetWidth;
+            const containerHeight = container.offsetHeight;
+
+            let workableHeight = containerHeight - 2*marginPx;
+            let workableWidth = containerWidth - 2*marginPx;
+            let workableAspectRatio = workableHeight/workableWidth;
+
+            var guideAspectRatio = 1.294; // US Letter
+
+            var turned = false;
+            var newWh = workableHeight;
+            var newWW = workableWidth;
+            var newWAR = workableAspectRatio;
+            var newGAR = guideAspectRatio;
+
+            if (workableAspectRatio < 1) {
+                console.log("inverting screen");
+                newWAR = 1/workableAspectRatio;
+                console.log("new war" + newWAR);
+                newWh = workableWidth;
+                newWW = workableHeight;
+                turned = true;
+            }
+
+            if (guideAspectRatio < 1) {
+                newGAR = 1/guideAspectRatio;
+                console.log("inverting doc");
+            }
+
+            var height = 0;
+            var width = 0;
+            
+            if (newWAR > newGAR) {
+                console.log("long screen");
+                width = newWW;
+                height = width * newGAR;
+            } else {
+                scrib.show("short screen");
+                height = newWh;
+                width = height / newGAR;
+            }
+            
+            if (turned) {
+                console.log("revert");
+                var t = height;
+                height = width;
+                width = t;
+            }
+
+            guideTarget.style.top = `${marginPx + (workableHeight - height)/2}px`;
+            guideTarget.style.left = `${marginPx + (workableWidth - width)/2}px`;
+            guideTarget.style.width = `${width}px`;
+            guideTarget.style.height = `${height}px`;
+
+
+            /*
             const containerWidth = container.offsetWidth;
             const containerHeight = container.offsetHeight;
             const marginX = containerWidth * GUIDE_MARGIN;
@@ -534,6 +595,7 @@ for (let i = 0; i < contours.size(); ++i) {
             guideTarget.style.top = `${marginY}px`;
             guideTarget.style.width = `${containerWidth - 2 * marginX}px`;
             guideTarget.style.height = `${containerHeight - 2 * marginY}px`;
+            */
         }
 
         function startProcessing() {
