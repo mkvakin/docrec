@@ -104,6 +104,21 @@
             </div>
         </div>
 
+        <!-- Capture controls -->
+        <div class="mt-4 space-y-3">
+            <div class="flex gap-3">
+                <button id="take-photo-btn" class="flex-1 bg-orange-500 text-white py-2 rounded-lg font-semibold hover:bg-orange-600">Take Photo</button>
+                <button id="retake-photo-btn" class="flex-1 bg-gray-300 text-gray-800 py-2 rounded-lg font-semibold hidden">Retake</button>
+                <button id="upload-photo-btn" class="flex-1 bg-green-500 text-white py-2 rounded-lg font-semibold hidden">Upload</button>
+            </div>
+
+            <div id="captured-area" class="mt-3 bg-gray-50 p-3 rounded-lg hidden">
+                <div class="text-sm text-gray-600 mb-2">Captured Image:</div>
+                <img id="captured-image" src="" alt="Captured" style="width:100%; height:auto; display:block; border-radius:8px;" />
+                <div id="upload-status" class="text-sm mt-2 text-gray-600"></div>
+            </div>
+        </div>
+
         <button id="retry-btn" class="mt-4 w-full bg-blue-500 text-white py-2 rounded-lg font-semibold hidden hover:bg-blue-600 transition">
             Retry Initialization
         </button>
@@ -645,8 +660,121 @@
             }
         });
 
+
+// --- Capture / Upload controls ---
+        const takePhotoBtn = document.getElementById('take-photo-btn');
+        const retakePhotoBtn = document.getElementById('retake-photo-btn');
+        const uploadPhotoBtn = document.getElementById('upload-photo-btn');
+        const capturedArea = document.getElementById('captured-area');
+        const capturedImage = document.getElementById('captured-image');
+        const uploadStatus = document.getElementById('upload-status');
+
+        let capturedBlob = null;
+
+        function initCaptureControls() {
+            takePhotoBtn.addEventListener('click', capturePhoto);
+            retakePhotoBtn.addEventListener('click', retakePhoto);
+            uploadPhotoBtn.addEventListener('click', uploadCapturedImage);
+        }
+
+        function capturePhoto() {
+            if (!videoReady || !video.videoWidth || !video.videoHeight) {
+                uploadStatus.textContent = "Video not ready to capture.";
+                return;
+            }
+
+            // Ensure capture canvas matches video resolution
+            captureCanvas.width = video.videoWidth;
+            captureCanvas.height = video.videoHeight;
+
+            // Handle front-camera mirroring: draw flipped if necessary
+            captureCtx.save();
+            if (isFrontCamera) {
+                captureCtx.scale(-1, 1);
+                captureCtx.drawImage(video, -captureCanvas.width, 0, captureCanvas.width, captureCanvas.height);
+            } else {
+                captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+            }
+            captureCtx.restore();
+
+            // Convert to blob for upload and toDataURL for preview
+            captureCanvas.toBlob(blob => {
+                if (!blob) {
+                    uploadStatus.textContent = "Failed to capture image.";
+                    return;
+                }
+                capturedBlob = blob;
+                const url = URL.createObjectURL(blob);
+                showCapturedImage(url);
+            }, 'image/png');
+        }
+
+        function showCapturedImage(url) {
+            capturedImage.src = url;
+            capturedArea.classList.remove('hidden');
+            uploadPhotoBtn.classList.remove('hidden');
+            retakePhotoBtn.classList.remove('hidden');
+            takePhotoBtn.classList.add('hidden');
+            uploadStatus.textContent = '';
+        }
+
+        function retakePhoto() {
+            // Release previous blob URL
+            if (capturedImage.src) {
+                URL.revokeObjectURL(capturedImage.src);
+            }
+            capturedBlob = null;
+            capturedImage.src = '';
+            capturedArea.classList.add('hidden');
+            uploadPhotoBtn.classList.add('hidden');
+            retakePhotoBtn.classList.add('hidden');
+            takePhotoBtn.classList.remove('hidden');
+            uploadStatus.textContent = '';
+        }
+
+        async function uploadCapturedImage() {
+            if (!capturedBlob) {
+                uploadStatus.textContent = "No image to upload.";
+                return;
+            }
+
+            uploadPhotoBtn.disabled = true;
+            retakePhotoBtn.disabled = true;
+            uploadStatus.textContent = "Uploading...";
+
+            try {
+                const form = new FormData();
+                form.append('file', capturedBlob, 'capture.png');
+
+                // Adjust endpoint as needed on your server
+                const resp = await fetch('/upload', {
+                    method: 'POST',
+                    body: form
+                });
+
+                if (!resp.ok) {
+                    const txt = await resp.text().catch(()=>resp.statusText);
+                    uploadStatus.textContent = `Upload failed: ${resp.status} ${txt}`;
+                } else {
+                    const data = await resp.json().catch(()=>null);
+                    uploadStatus.textContent = "Upload successful.";
+                    // Optionally show server response or link
+                    if (data && data.url) {
+                        uploadStatus.innerHTML = `Upload successful. <a href="${data.url}" target="_blank" class="text-blue-600 underline">View</a>`;
+                    }
+                }
+            } catch (err) {
+                console.error("Upload error:", err);
+                uploadStatus.textContent = `Upload error: ${err.message || err}`;
+            } finally {
+                uploadPhotoBtn.disabled = false;
+                retakePhotoBtn.disabled = false;
+            }
+        }
+
         window.onload = () => {
             setupCamera();
+            initCaptureControls();
         };
 
         setTimeout(() => {
