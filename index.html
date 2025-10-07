@@ -146,6 +146,7 @@
         let g_detectedCorners = [];
         let animationFrameId = null;
         let isFrontCamera = false;
+        let shouldMirror = false;
         let frameCount = 0;
 
         const TARGET_FILL_PERCENT = 0.4;
@@ -494,10 +495,14 @@
                     // Detect if using front or rear camera
                     const videoTrack = stream.getVideoTracks()[0];
                     const settings = videoTrack.getSettings();
-                    isFrontCamera = settings.facingMode === 'user';
-                    
-                    // Only mirror if using front camera
-                    if (isFrontCamera) {
+                    const facing = settings.facingMode || null;
+                    isFrontCamera = facing === 'user';
+
+                    // Only mirror on front camera for mobile devices (desktop front cameras often shouldn't be mirrored)
+                    const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+                    shouldMirror = isFrontCamera && isMobile;
+
+                    if (shouldMirror) {
                         video.style.transform = 'scaleX(-1)';
                         canvas.style.transform = 'scaleX(-1)';
                     } else {
@@ -687,9 +692,9 @@
             captureCanvas.width = video.videoWidth;
             captureCanvas.height = video.videoHeight;
 
-            // Handle front-camera mirroring: draw flipped if necessary
+            // Draw current video frame into captureCanvas (handle mirroring)
             captureCtx.save();
-            if (isFrontCamera) {
+            if (shouldMirror) {
                 captureCtx.scale(-1, 1);
                 captureCtx.drawImage(video, -captureCanvas.width, 0, captureCanvas.width, captureCanvas.height);
             } else {
@@ -697,11 +702,44 @@
             }
             captureCtx.restore();
 
-            // Convert to blob for upload and toDataURL for preview
-            captureCanvas.toBlob(blob => {
+            // Compute crop rectangle in video pixel coordinates using overlay canvas/client rects
+            const canvasRect = canvas.getBoundingClientRect();
+            const guideRect = guideTarget.getBoundingClientRect();
+
+            // Map guide rectangle from client pixels to captureCanvas pixels
+            const scaleX = captureCanvas.width / canvasRect.width;
+            const scaleY = captureCanvas.height / canvasRect.height;
+
+            let sx = (guideRect.left - canvasRect.left) * scaleX;
+            let sy = (guideRect.top - canvasRect.top) * scaleY;
+            let sw = guideRect.width * scaleX;
+            let sh = guideRect.height * scaleY;
+
+            // Clamp values to canvas bounds
+            sx = Math.max(0, Math.min(captureCanvas.width - 1, sx));
+            sy = Math.max(0, Math.min(captureCanvas.height - 1, sy));
+            sw = Math.max(1, Math.min(captureCanvas.width - sx, sw));
+            sh = Math.max(1, Math.min(captureCanvas.height - sy, sh));
+
+            // Create a temporary canvas with the crop size and draw the cropped region
+            const temp = document.createElement('canvas');
+            temp.width = Math.round(sw);
+            temp.height = Math.round(sh);
+            const tctx = temp.getContext('2d');
+
+            // If front camera capture was mirrored, the pixels in captureCanvas are already mirrored,
+            // and the mapping using client rects (which reflect the visual preview) matches.
+            tctx.drawImage(captureCanvas, sx, sy, sw, sh, 0, 0, temp.width, temp.height);
+
+            // Convert cropped canvas to blob for upload and preview
+            temp.toBlob(blob => {
                 if (!blob) {
                     uploadStatus.textContent = "Failed to capture image.";
                     return;
+                }
+                // Release previous preview URL if any
+                if (capturedImage.src) {
+                    try { URL.revokeObjectURL(capturedImage.src); } catch(e) {}
                 }
                 capturedBlob = blob;
                 const url = URL.createObjectURL(blob);

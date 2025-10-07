@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+# Virtualenv
+server/.venv/
+.env
+.env.* 
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temp
+*.log
+/tmp/
+uploads/
+docrec_uploads/
+server/uploads/
+server/*.log
+
+# Firebase emulator & local emulator exports
+.firebase/
+firebase-debug.log
+firebase-export/
+
+# Built / packaging
+dist/
+build/
+*.egg-info/
+node_modules/
+
+# Google / service account credentials
+*.json
+credentials.json
+service-account.json
+google-credentials.json
+
+# Misc
+coverage/
+.coverage
+htmlcov/
