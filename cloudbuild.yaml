@@ -16,7 +16,8 @@ steps:
       - '-c'
       - |
         echo "Copying source to ${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}"
-        gcloud compute scp --recurse --zone="${_ZONE}" . "${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}" --quiet
+        # use /workspace/* (Cloud Build checkout dir) rather than "."
+        gcloud compute scp --recurse --zone="${_ZONE}" /workspace/* "${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}" --quiet
 
   # SSH to VM: install runtime, create venv, install deps, move service file and restart systemd
   - name: 'gcr.io/cloud-builders/gcloud'
