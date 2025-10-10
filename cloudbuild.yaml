@@ -1,5 +1,8 @@
 # cloudbuild.yaml
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+  
 steps:
   # Optional: run tests / lint
   - name: 'gcr.io/cloud-builders/gcloud'
