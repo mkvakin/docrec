@@ -18,7 +18,7 @@ steps:
         REMOTE_DIR="/home/${_TARGET_USER}/docrec"
         echo "Ensuring remote dir ${REMOTE_DIR} exists on ${_VM_NAME}"
         gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
-          sudo mkdir -p '${REMOTE_DIR}' && sudo chown -R '${_TARGET_USER}':'${_TARGET_USER}' '${REMOTE_DIR}' \
+          sudo mkdir -p '$${REMOTE_DIR}' && sudo chown -R '${_TARGET_USER}':'${_TARGET_USER}' '$${REMOTE_DIR}' \
         " --quiet
 
   # Copy workspace files to the VM (use /workspace/*)
@@ -28,8 +28,8 @@ steps:
       - -c
       - |
         REMOTE_DIR="/home/${_TARGET_USER}/docrec"
-        echo "Copying source to ${_TARGET_USER}@${_VM_NAME}:${REMOTE_DIR}"
-        gcloud compute scp --recurse --zone="${_ZONE}" /workspace/* "${_TARGET_USER}@${_VM_NAME}:${REMOTE_DIR}" --quiet
+        echo "Copying source to ${_TARGET_USER}@${_VM_NAME}:$${REMOTE_DIR}"
+        gcloud compute scp --recurse --zone="${_ZONE}" /workspace/* "${_TARGET_USER}@${_VM_NAME}:$${REMOTE_DIR}" --quiet
 
   # SSH to VM and perform deployment (venv, pip install, move service, reload systemd)
   - name: "gcr.io/cloud-builders/gcloud"
@@ -39,20 +39,20 @@ steps:
       - |
         REMOTE_DIR="/home/${_TARGET_USER}/docrec"
         echo "Deploying on ${_VM_NAME}..."
-        echo "Deploying to VM=${_VM_NAME} as user=${_TARGET_USER} to ${REMOTE_DIR}"
+        echo "Deploying to VM=${_VM_NAME} as user=${_TARGET_USER} to $${REMOTE_DIR}"
         gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
           set -euo pipefail; \
           sudo apt-get update -y || true; \
           sudo apt-get install -y python3 python3-venv python3-pip || true; \
-          cd '${REMOTE_DIR}'; \
+          cd '$${REMOTE_DIR}'; \
           python3 -m venv .venv || true; \
           . .venv/bin/activate; \
           pip install --upgrade pip || true; \
-          if [ -f '${REMOTE_DIR}/server/requirements.txt' ]; then \
-            pip install -r '${REMOTE_DIR}/server/requirements.txt' || true; \
+          if [ -f '$${REMOTE_DIR}/server/requirements.txt' ]; then \
+            pip install -r '$${REMOTE_DIR}/server/requirements.txt' || true; \
           fi; \
-          if [ -f '${REMOTE_DIR}/server/${_SERVICE_FILE}' ]; then \
-            sed \"s/USER_PLACEHOLDER/${_TARGET_USER}/g\" '${REMOTE_DIR}/server/${_SERVICE_FILE}' | sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null; \
+          if [ -f '$${REMOTE_DIR}/server/${_SERVICE_FILE}' ]; then \
+            sed \"s/USER_PLACEHOLDER/${_TARGET_USER}/g\" '$${REMOTE_DIR}/server/${_SERVICE_FILE}' | sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null; \
           fi; \
           sudo systemctl daemon-reload; \
           sudo systemctl enable ${_SERVICE_NAME}.service || true; \
