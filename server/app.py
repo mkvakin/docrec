@@ -13,9 +13,6 @@ CORS(app)
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-
-
-
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/docrec_uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
