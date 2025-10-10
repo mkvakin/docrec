@@ -2,44 +2,51 @@
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  
+
 steps:
   # Optional: run tests / lint
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args: ['-c', 'echo "Optional: run tests here"']
 
-  # Copy repository to the VM
-  - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
+  # Ensure remote directory exists and is owned by target user
+  - name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
     args:
-      - '-c'
+      - -c
+      - |
+        echo "Ensuring remote dir ${_REMOTE_DIR} exists on ${_VM_NAME}"
+        gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
+          sudo mkdir -p '${_REMOTE_DIR}' && sudo chown -R '${_TARGET_USER}':'${_TARGET_USER}' '${_REMOTE_DIR}' \
+        " --quiet
+
+  # Copy workspace files to the VM (use /workspace/*)
+  - name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
+    args:
+      - -c
       - |
         echo "Copying source to ${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}"
-        # use /workspace/* (Cloud Build checkout dir) rather than "."
         gcloud compute scp --recurse --zone="${_ZONE}" /workspace/* "${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}" --quiet
 
-  # SSH to VM: install runtime, create venv, install deps, move service file and restart systemd
-  - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
+  # SSH to VM and perform deployment (venv, pip install, move service, reload systemd)
+  - name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
     args:
-      - '-c'
+      - -c
       - |
         echo "Deploying on ${_VM_NAME}..."
         gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
           set -euo pipefail; \
           sudo apt-get update -y || true; \
           sudo apt-get install -y python3 python3-venv python3-pip || true; \
-          mkdir -p ${_REMOTE_DIR}; \
-          sudo chown -R ${_TARGET_USER}:${_TARGET_USER} ${_REMOTE_DIR}; \
-          cd ${_REMOTE_DIR}; \
+          cd '${_REMOTE_DIR}'; \
           python3 -m venv .venv || true; \
           . .venv/bin/activate; \
           pip install --upgrade pip || true; \
           pip install -r requirements.txt || true; \
-          # if a service file is present in the repo, move it into systemd and restart \
-          if [ -f ${_REMOTE_DIR}/server/${_SERVICE_FILE} ]; then \
-            sudo mv ${_REMOTE_DIR}/server/${_SERVICE_FILE} /etc/systemd/system/${_SERVICE_NAME}.service; \
+          if [ -f '${_REMOTE_DIR}/server/${_SERVICE_FILE}' ]; then \
+            sudo mv '${_REMOTE_DIR}/server/${_SERVICE_FILE}' /etc/systemd/system/${_SERVICE_NAME}.service; \
           fi; \
           sudo systemctl daemon-reload; \
           sudo systemctl enable ${_SERVICE_NAME}.service || true; \
@@ -53,7 +60,7 @@ substitutions:
   _TARGET_USER: "ubuntu"
   _REMOTE_DIR: "/home/ubuntu/docrec"
   _SERVICE_NAME: "docrec"
-  _SERVICE_FILE: "docrec.service"   # this file should exist at server/docrec.service in your repo
+  _SERVICE_FILE: "docrec.service"
   _PORT: "8080"
   _GUNICORN_WORKERS: "2"
   _WSGI_MODULE: "app:app"
