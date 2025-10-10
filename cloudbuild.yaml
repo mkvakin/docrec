@@ -1,12 +1,84 @@
 # cloudbuild.yaml
 
 steps:
-# 1. Copy all website files to the bucket, excluding the cloudbuild file itself
-- name: 'gcr.io/cloud-builders/gsutil'
-  args: ['rsync', '-r', '-c', '-d', '.', 'gs://${PROJECT_ID}-data-bucket']
-  env:
-  - 'PROJECT_ID=$PROJECT_ID'
+  # Optional: run tests / lint
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Optional: run tests here"
 
-# 2. Set the public cache control headers (optional but recommended)
-- name: 'gcr.io/cloud-builders/gsutil'
-  args: ['-m', 'setmeta', '-h', 'Cache-Control:public, max-age=3600', 'gs://${PROJECT_ID}-data-bucket/**']
+  # Copy repository to the VM
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Copying source to ${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}"
+        gcloud compute scp --recurse --zone="${_ZONE}" . "${_TARGET_USER}@${_VM_NAME}:${_REMOTE_DIR}" --quiet
+
+  # SSH to VM and install runtime, create venv, install deps, install systemd unit and start service
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Deploying on ${_VM_NAME}..."
+        gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
+          set -euo pipefail; \
+          sudo apt-get update -y >/dev/null 2>&1 || true; \
+          sudo apt-get install -y python3 python3-venv python3-pip >/dev/null 2>&1 || true; \
+          mkdir -p ${_REMOTE_DIR}; \
+          sudo chown -R ${_TARGET_USER}:${_TARGET_USER} ${_REMOTE_DIR}; \
+          cd ${_REMOTE_DIR}; \
+          python3 -m venv .venv || true; \
+          . .venv/bin/activate; \
+          pip install --upgrade pip >/dev/null; \
+          pip install -r requirements.txt >/dev/null || true; \
+          # create systemd unit file for the app \
+          sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null <<'UNIT' || true \
+[Unit] \
+Description=DocRec Flask app (${_SERVICE_NAME}) \
+After=network.target \
+ \
+[Service] \
+User=${_TARGET_USER} \
+WorkingDirectory=${_REMOTE_DIR} \
+Environment=PORT=${_PORT} \
+ExecStart=${_REMOTE_DIR}/.venv/bin/gunicorn -b 0.0.0.0:${_PORT} ${_WSGI_MODULE:-app:app} --workers ${_GUNICORN_WORKERS} \
+Restart=always \
+RestartSec=5 \
+StandardOutput=journal \
+StandardError=journal \
+ \
+[Install] \
+WantedBy=multi-user.target \
+UNIT
+          sudo systemctl daemon-reload; \
+          sudo systemctl enable ${_SERVICE_NAME}.service; \
+          sudo systemctl restart ${_SERVICE_NAME}.service; \
+          sudo systemctl status ${_SERVICE_NAME}.service --no-pager || true \
+        " --quiet
+
+  # 1. Copy all website files to the bucket, excluding the cloudbuild file itself
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['rsync', '-r', '-c', '-d', '.', 'gs://${PROJECT_ID}-data-bucket']
+    env:
+    - 'PROJECT_ID=$PROJECT_ID'
+
+  # 2. Set the public cache control headers (optional but recommended)
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['-m', 'setmeta', '-h', 'Cache-Control:public, max-age=3600', 'gs://${PROJECT_ID}-data-bucket/**']
+
+substitutions:
+  _VM_NAME: "my-vm"
+  _ZONE: "us-central1-a"
+  _TARGET_USER: "ubuntu"
+  _REMOTE_DIR: "/home/ubuntu/docrec"
+  _SERVICE_NAME: "docrec"
+  _PORT: "8080"
+  _GUNICORN_WORKERS: "2"
+  _WSGI_MODULE: "app:app"
+
+timeout: "1200s"
