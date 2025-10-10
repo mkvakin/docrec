@@ -36,6 +36,7 @@ steps:
       - -c
       - |
         echo "Deploying on ${_VM_NAME}..."
+        echo "Deploying to VM=${_VM_NAME} as user=${_TARGET_USER} to ${_REMOTE_DIR}"
         gcloud compute ssh --zone="${_ZONE}" "${_TARGET_USER}@${_VM_NAME}" --command "\
           set -euo pipefail; \
           sudo apt-get update -y || true; \
