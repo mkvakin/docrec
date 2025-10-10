@@ -3,10 +3,10 @@ Description=DocRec Flask app (docrec)
 After=network.target
 
 [Service]
-User=ubuntu
-WorkingDirectory=/home/ubuntu/docrec
+User=USER_PLACEHOLDER
+WorkingDirectory=/home/USER_PLACEHOLDER/docrec/server
 Environment=PORT=8080
-ExecStart=/home/ubuntu/docrec/.venv/bin/gunicorn -b 0.0.0.0:8080 app:app --workers 2
+ExecStart=/home/USER_PLACEHOLDER/docrec/.venv/bin/gunicorn -b 0.0.0.0:8080 server.app:app --workers 2
 Restart=always
 RestartSec=5
 StandardOutput=journal
