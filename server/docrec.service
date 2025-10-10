@@ -1,0 +1,16 @@
+[Unit]
+Description=DocRec Flask app (docrec)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/docrec
+Environment=PORT=8080
+ExecStart=/home/ubuntu/docrec/.venv/bin/gunicorn -b 0.0.0.0:8080 app:app --workers 2
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
