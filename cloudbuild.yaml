@@ -44,9 +44,13 @@ steps:
           python3 -m venv .venv || true; \
           . .venv/bin/activate; \
           pip install --upgrade pip || true; \
-          pip install -r requirements.txt || true; \
+          # install requirements from server/requirements.txt (remote path) \
+          if [ -f '${_REMOTE_DIR}/server/requirements.txt' ]; then \
+            pip install -r '${_REMOTE_DIR}/server/requirements.txt' || true; \
+          fi; \
+          # replace placeholder user in the service file and move into systemd \
           if [ -f '${_REMOTE_DIR}/server/${_SERVICE_FILE}' ]; then \
-            sudo mv '${_REMOTE_DIR}/server/${_SERVICE_FILE}' /etc/systemd/system/${_SERVICE_NAME}.service; \
+            sed \"s/USER_PLACEHOLDER/${_TARGET_USER}/g\" '${_REMOTE_DIR}/server/${_SERVICE_FILE}' | sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null; \
           fi; \
           sudo systemctl daemon-reload; \
           sudo systemctl enable ${_SERVICE_NAME}.service || true; \
