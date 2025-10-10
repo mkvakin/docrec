@@ -61,16 +61,6 @@ UNIT
           sudo systemctl status ${_SERVICE_NAME}.service --no-pager || true \
         " --quiet
 
-  # 1. Copy all website files to the bucket, excluding the cloudbuild file itself
-  - name: 'gcr.io/cloud-builders/gsutil'
-    args: ['rsync', '-r', '-c', '-d', '.', 'gs://${PROJECT_ID}-data-bucket']
-    env:
-    - 'PROJECT_ID=$PROJECT_ID'
-
-  # 2. Set the public cache control headers (optional but recommended)
-  - name: 'gcr.io/cloud-builders/gsutil'
-    args: ['-m', 'setmeta', '-h', 'Cache-Control:public, max-age=3600', 'gs://${PROJECT_ID}-data-bucket/**']
-
 substitutions:
   _VM_NAME: "my-vm"
   _ZONE: "us-central1-a"
