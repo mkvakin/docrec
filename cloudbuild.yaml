@@ -62,8 +62,8 @@ steps:
 substitutions:
   _VM_NAME: "my-vm"
   _ZONE: "us-central1-a"
-  _TARGET_USER: "ubuntu"
-  _REMOTE_DIR: "/home/ubuntu/docrec"
+  _TARGET_USER: "ubuntu1"
+  _REMOTE_DIR: "/home/ubuntu1/docrec"
   _SERVICE_NAME: "docrec"
   _SERVICE_FILE: "docrec.service"
   _PORT: "8080"
