@@ -62,6 +62,7 @@ steps:
 
 substitutions:
   _VM_NAME: "my-vm"
+  _TARGET_USER: "appuser"
   _ZONE: "us-central1-a"
   _SERVICE_FILE: "docrec.service"
   _PORT: "8080"
