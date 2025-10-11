@@ -8,6 +8,7 @@ __pycache__/
 
 # Virtualenv
 server/.venv/
+server/.env 
 .env
 .env.* 
 
