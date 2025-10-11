@@ -49,7 +49,9 @@ steps:
             pip install -r /home/${_TARGET_USER}/docrec/server/requirements.txt || true;
           fi;
           if [ -f /home/${_TARGET_USER}/docrec/server/${_SERVICE_FILE} ]; then
-            sed "s/USER_PLACEHOLDER/${_TARGET_USER}/g" /home/${_TARGET_USER}/docrec/server/${_SERVICE_FILE} | sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null;
+            sed -e "s/USER_PLACEHOLDER/${_TARGET_USER}/g" \
+                -e "s|Environment=PORT=8080|Environment=PORT=8080\nEnvironment=GCS_BUCKET=${_GCS_BUCKET}\nEnvironment=GOOGLE_CLOUD_PROJECT=${_PROJECT_ID}|g" \
+                /home/${_TARGET_USER}/docrec/server/${_SERVICE_FILE} | sudo tee /etc/systemd/system/${_SERVICE_NAME}.service > /dev/null;
           fi;
           sudo systemctl daemon-reload;
           sudo systemctl enable ${_SERVICE_NAME}.service || true;
@@ -63,6 +65,8 @@ substitutions:
   _ZONE: "us-central1-a"
   _SERVICE_NAME: "docrec"
   _SERVICE_FILE: "docrec.service"
+  _GCS_BUCKET: "my-bucket"        # add real bucket name in trigger or here as default
+  _PROJECT_ID: "my-project"
   _PORT: "8080"
   _GUNICORN_WORKERS: "2"
   _WSGI_MODULE: "app:app"
